@@ -829,11 +829,26 @@ AC_SUBST([DUMP_SYMS])
 AC_SUBST([CC_MM])
 
 dnl Determine whether libm must be linked to use e.g. log(3).
-AC_SEARCH_LIBS([log], [m], , [AC_MSG_ERROR([Missing math functions])])
-if test "x$ac_cv_search_log" != "xnone required" ; then
-  LM="$ac_cv_search_log"
-else
+
+# On MSVC, log is an intrinsic that doesn't require libm. However,
+# AC_SEARCH_LIBS does not successfully detect this, as it will try to compile
+# a program using the wrong signature for log. Newer versions of MSVC CL detects
+# this and rejects the program with the following messages.
+#
+# conftest.c(40): warning C4391: 'char log()': incorrect return type for intrinsic function, expected 'double'
+# conftest.c(44): error C2168: 'log': too few actual parameters for intrinsic function
+#
+# Since log is always available on MSVC (it's been around since the dawn of
+# time), we simply always assume it's there if MSVC is detected.
+if test "x$je_cv_msvc" = "xyes" ; then
   LM=
+else
+  AC_SEARCH_LIBS([log], [m], , [AC_MSG_ERROR([Missing math functions])])
+    if test "x$ac_cv_search_log" != "xnone required" ; then
+      LM="$ac_cv_search_log"
+    else
+      LM=
+    fi
 fi
 AC_SUBST(LM)
 
@@ -2482,9 +2497,19 @@ JE_COMPILABLE([strerror_r returns char with gnu source], [
   char *error = strerror_r(EINVAL, buffer, 100);
   printf("%s\n", error);
 ], [je_cv_strerror_r_returns_char_with_gnu_source])
+if test "x${je_cv_strerror_r_returns_char_with_gnu_source}" = "xno" ; then
+  JE_COMPILABLE([strerror_r header only], [
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+], [], [je_cv_strerror_r_header_pass])
+fi
 JE_CFLAGS_RESTORE()
 if test "x${je_cv_strerror_r_returns_char_with_gnu_source}" = "xyes" ; then
   AC_DEFINE([JEMALLOC_STRERROR_R_RETURNS_CHAR_WITH_GNU_SOURCE], [ ], [ ])
+elif test "x${je_cv_strerror_r_header_pass}" = "xno" ; then
+  AC_MSG_ERROR([cannot determine return type of strerror_r])
 fi
 
 dnl ============================================================================
